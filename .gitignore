@@ -1,0 +1,16 @@
+.eunit
+.railing
+*deps/*
+*ebin/*
+*.o
+*.log
+*.beam
+*.plt
+erl_crash.dump
+log
+.concrete/DEV_MODE
+.rebar
+*Mnesia*
+Gemfile.lock
+rebar
+*~

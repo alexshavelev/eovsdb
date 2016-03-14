@@ -1,0 +1,12 @@
+{application, eovsdb,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { eovsdb_app, []}},
+  {env, []}
+ ]}.
