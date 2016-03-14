@@ -9,15 +9,23 @@
 -define(RETRY_CONNECT_TIME, 5000).
 -define(STATE, eovsdb_client_state).
 
--record(?STATE, { mref   :: reference(),
-                  ipaddr :: inet:ip_address(),
-                  port   :: integer() }).
+-record(?STATE, { mref     :: reference(),
+                  ipaddr   :: inet:ip_address(),
+                  port     :: integer(),
+                  database :: binary(),
+                  conn_pid :: pid() }).
 
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([connect/2, signal_connect/1]).
+-export([connect/2,
+         signal_connect/1,
+         list_dbs/1,
+         get_schema/1,
+         get_schema/2,
+         transaction/2,
+         transaction/3]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -30,20 +38,70 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
+list_dbs(Pid) ->
+    gen_server:call(Pid, list_dbs).
+
+get_schema(Pid) ->
+    gen_server:call(Pid, get_schema).
+get_schema(Pid, DB) ->
+    gen_server:call(Pid, {get_schema, DB}).
+
+transaction(Pid, Op) ->
+    gen_server:call(Pid, {transaction, Op}).
+transaction(Pid, DB, Op) ->
+    gen_server:call(Pid, {transaction, DB, Op}).
+
 signal_connect(Pid) ->
     gen_server:cast(Pid, connect).
 
-connect(Host, Port) ->
-    gen_server:start_link(?MODULE, [Host, Port], []).
+connect(Host, Opts) when is_list(Host) ->
+    HostBin = list_to_binary(Host),
+    [AddrBin, PortBin] = binary:split(HostBin, <<":">>),
+    Port = binary_to_integer(PortBin),
+    Addr0 = binary_to_list(AddrBin),
+    Addr1 = case inet:parse_address(Addr0) of
+                {error, einval} ->
+                    case inet_gethost_native:gethostbyname(Addr0) of
+                        {error, _} = E ->
+                            ?ERR("[~p] couldn't connect to ~p~n", [?MODULE, Host]),
+                            error(E);
+                        {ok, Res} ->
+                            [TmpAddr|_T] = element(6, Res),
+                            TmpAddr
+                    end;
+                {ok, TmpAddr} -> TmpAddr
+            end,
+    gen_server:start_link(?MODULE, [Addr1, Port, Opts], []).
 
 %% ------------------------------------------------------------------
 %% callbacks
 %% ------------------------------------------------------------------
 
-init([Host, Port]) ->
+init([Host, Port, Opts]) ->
     signal_connect(self()),
-    {ok, #?STATE{ipaddr = Host, port = Port}}.
+    DB = proplists:get_value(database, Opts),
+    {ok, #?STATE{ipaddr = Host, port = Port, database = DB}}.
 
+handle_call(list_dbs, _From,
+            State = #?STATE{ conn_pid = Conn }) ->
+    Reply = eovsdb_protocol:list_dbs(Conn),
+    {reply, Reply, State};
+handle_call(get_schema, _From,
+            State = #?STATE{ conn_pid = Conn, database = DB }) ->
+    Reply = eovsdb_protocol:get_schema(Conn, DB),
+    {reply, Reply, State};
+handle_call({get_schema, DB}, _From,
+            State = #?STATE{ conn_pid = Conn }) ->
+    Reply = eovsdb_protocol:get_schema(Conn, DB),
+    {reply, Reply, State};
+handle_call({transaction, Ops},
+            _From, State = #?STATE{ conn_pid = Conn, database = DB }) ->
+    Reply = eovsdb_protocol:transaction(Conn, DB, Ops),
+    {reply, Reply, State};
+handle_call({transaction, DB, Ops},
+            _From, State = #?STATE{ conn_pid = Conn }) ->
+    Reply = eovsdb_protocol:transaction(Conn, DB, Ops),
+    {reply, Reply, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -57,18 +115,16 @@ handle_cast(connect, State = #?STATE{ ipaddr = Host, port = Port }) ->
                     {ok, Conn} ->
                         gen_tcp:controlling_process(Socket, Conn),
                         MRef = erlang:monitor(process, Conn),
-                        State#?STATE{ mref = MRef };
+                        State#?STATE{ mref = MRef, conn_pid = Conn };
                     {error, ChildReason} ->
                         HostStr = inet_parse:ntoa(Host),
-                        ?WARN("can't start eovsdb_protocol for ~s:~p: ~p\n",
-                              [HostStr, Port, ChildReason]),
+                        ?WARN("can't start eovsdb_protocol for ~s:~p: ~p~n", [HostStr, Port, ChildReason]),
                         retry_connect(self(), ?RETRY_CONNECT_TIME),
                         State
                 end;
             {error, TcpReason} ->
                 HostStr = inet_parse:ntoa(Host),
-                ?WARN("tcp error connecting to ~s:~p: ~p\n",
-                      [HostStr, Port, TcpReason]),
+                ?WARN("tcp error connecting to ~s:~p: ~p~n", [HostStr, Port, TcpReason]),
                 retry_connect(self(), ?RETRY_CONNECT_TIME),
                 State
         end,
