@@ -3,7 +3,8 @@
 -export([send_json/3,
          setopts/3,
          close/2,
-         rand_id/0]).
+         rand_id/0,
+         uuid/0]).
 
 send_json(Protocol, Socket, Map) ->
     Json = jsone:encode(Map),
@@ -29,3 +30,7 @@ close(tls, Socket) ->
 rand_id() ->
     IdBin = crypto:rand_bytes(4),
     binary:decode_unsigned(IdBin, big).
+
+uuid() ->
+    UuidStr = uuid:to_string(uuid:uuid4()),
+    erlang:list_to_binary(UuidStr).

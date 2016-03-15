@@ -6,14 +6,15 @@
 
 -define(SERVER, ?MODULE).
 -define(CONNECT_TIMEOUT, 5000).
--define(RETRY_CONNECT_TIME, 5000).
+-define(DEFAULT_RETRY_CONNECT_TIME, 5000).
 -define(STATE, eovsdb_client_state).
 
--record(?STATE, { mref     :: reference(),
-                  ipaddr   :: inet:ip_address(),
-                  port     :: integer(),
-                  database :: binary(),
-                  conn_pid :: pid() }).
+-record(?STATE, { mref                   :: reference(),
+                  ipaddr                 :: inet:ip_address(),
+                  port                   :: integer(),
+                  database               :: binary(),
+                  conn_pid               :: pid(),
+                  connection_timeout = 0 :: integer() }).
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -80,7 +81,11 @@ connect(Host, Opts) when is_list(Host) ->
 init([Host, Port, Opts]) ->
     signal_connect(self()),
     DB = proplists:get_value(database, Opts),
-    {ok, #?STATE{ipaddr = Host, port = Port, database = DB}}.
+    TimeOut = proplists:get_value(connection_timeout, Opts, ?DEFAULT_RETRY_CONNECT_TIME),
+    {ok, #?STATE{ipaddr = Host,
+                 port = Port,
+                 database = DB,
+                 connection_timeout = TimeOut }}.
 
 handle_call(list_dbs, _From,
             State = #?STATE{ conn_pid = Conn }) ->
@@ -105,7 +110,9 @@ handle_call({transaction, DB, Ops},
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast(connect, State = #?STATE{ ipaddr = Host, port = Port }) ->
+handle_cast(connect, State = #?STATE{ ipaddr = Host,
+                                      port = Port,
+                                      connection_timeout = TimeOut}) ->
     NewState =
         case gen_tcp:connect(Host, Port, [binary,
                                           {packet, raw},
@@ -119,13 +126,13 @@ handle_cast(connect, State = #?STATE{ ipaddr = Host, port = Port }) ->
                     {error, ChildReason} ->
                         HostStr = inet_parse:ntoa(Host),
                         ?WARN("can't start eovsdb_protocol for ~s:~p: ~p~n", [HostStr, Port, ChildReason]),
-                        retry_connect(self(), ?RETRY_CONNECT_TIME),
+                        retry_connect(self(), TimeOut),
                         State
                 end;
             {error, TcpReason} ->
                 HostStr = inet_parse:ntoa(Host),
                 ?WARN("tcp error connecting to ~s:~p: ~p~n", [HostStr, Port, TcpReason]),
-                retry_connect(self(), ?RETRY_CONNECT_TIME),
+                retry_connect(self(), TimeOut),
                 State
         end,
     {noreply, NewState};
