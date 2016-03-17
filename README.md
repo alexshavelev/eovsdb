@@ -54,6 +54,16 @@ eovsdb_client:transaction(Pid, [eovsdb_op:insert(<<"Interface">>, Interface, <<"
                                 eovsdb_op:commit(true)]).
 ```
 
+### Tracking OVSDB Changes
+
+```erlang
+{ ok, Pid } = eovsdb_client:connect("127.0.0.1:6632", [{ database, <<"Open_vSwitch">>}]).
+{ ok, Rows } = eovsdb_client:monitor(Pid, <<"Bridge">>).
+%% or eovsdb_client:monitor(Pid, [#{<<"Bridge">> => #{columns => [name], select => #{initial => true}}}]).
+ok = eovsdb_client:monitor_cancel(Pid).
+flush().
+```
+
 ## Status
 
 work-in-progress

@@ -16,8 +16,7 @@
                   conn_ref               :: reference(),
                   connection_timeout = 0 :: integer(),
                   monitor_pid            :: pid(),
-                  monitor_ref            :: reference(),
-                  monitor_xid = 0        :: integer() }).
+                  monitor_ref            :: reference()}).
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -31,7 +30,8 @@
          get_columns/2,
          transaction/2,
          transaction/3,
-         monitor/3]).
+         monitor/2,
+         monitor_cancel/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -60,8 +60,11 @@ transaction(Pid, Op) ->
 transaction(Pid, DB, Op) ->
     gen_server:call(Pid, {transaction, DB, Op}).
 
-monitor(Pid, Cols, Select) ->
-    gen_server:call(Pid, {monitor, self(), Pid, Cols, Select}).
+monitor(Pid, Select) ->
+    gen_server:call(Pid, {monitor, self(), Select}).
+
+monitor_cancel(Pid) ->
+    gen_server:call(Pid, monitor_cancel).
 
 signal_connect(Pid) ->
     gen_server:cast(Pid, connect).
@@ -122,14 +125,18 @@ handle_call({transaction, DB, Ops},
             _From, State = #?STATE{ conn_pid = Conn }) ->
     Reply = eovsdb_protocol:transaction(Conn, DB, Ops),
     {reply, Reply, State};
-handle_call({monitor, MPid, Cols, Select},
-            _From, State = #?STATE{ conn_pid = Conn }) ->
+handle_call({monitor, MPid, Select},
+            _From, State = #?STATE{ conn_pid = Conn, database = DB }) ->
+    Reply = eovsdb_protocol:monitor(Conn, self(), DB, Select),
     MRef = erlang:monitor(process, MPid),
-    Reply = eovsdb_protocol:monitor(Conn, Cols, Select),
-    %% { ok, [X|_] } = Reply,
-    %% Xid = maps:get(<<"id">>, X),
-    %% NewState = State#?STATE{ monitor_xid = Xid },
-    {reply, Reply, State#?STATE{ monitor_ref = MRef }};
+    {reply, Reply, State#?STATE{ monitor_ref = MRef,
+                                 monitor_pid = MPid }};
+handle_call(monitor_cancel, _From,
+            State = #?STATE{ conn_pid = ConnPid,
+                             monitor_ref = MonRef}) ->
+    eovsdb_protocol:monitor_cancel(ConnPid),
+    erlang:demonitor(MonRef),
+    {reply, ok, State#?STATE{ monitor_ref = undefined}};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -165,12 +172,17 @@ handle_cast(_Msg, State) ->
 handle_info({'DOWN', ConnRef, process, _ConnPid, _Reason},
             State = #?STATE{conn_ref = ConnRef}) ->
     signal_connect(self()),
+    erlang:demonitor(ConnRef),
     {noreply, State};
-handle_info({'DOWN', MonRef, process, _ConnPid, _Reason},
-            State = #?STATE{monitor_ref = MonRef, monitor_xid = _Xid}) ->
-    %% eovsdb_protocol:monitor_cancel(Xid),
-    %%
-    not_implemented,
+handle_info({'DOWN', MonRef, process, _MonPid, _Reason},
+            State = #?STATE{monitor_ref = MonRef,
+                            conn_pid = ConnPid }) ->
+    eovsdb_protocol:monitor_cancel(ConnPid),
+    erlang:demonitor(MonRef),
+    {noreply, State};
+handle_info({monitor_update, Update},
+            State = #?STATE{monitor_pid = MPid}) ->
+    erlang:send(MPid, Update),
     {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.

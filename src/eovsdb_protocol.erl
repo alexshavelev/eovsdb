@@ -9,7 +9,7 @@
 
 %% Protocol API
 -export([echo_reply/2, list_dbs/1, get_schema/2, transaction/3,
-         get_columns/3]).
+         get_columns/3, monitor/4, monitor_cancel/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -24,7 +24,9 @@
                   port                         :: integer(),
                   protocol        = tcp        :: atom(),
                   buffer          = <<>>       :: binary(),
-                  pending_message = maps:new() :: map() }).
+                  pending_message = maps:new() :: map(),
+                  monitor_pid                  :: pid(),
+                  monitor_xid                  :: integer() }).
 
 %%%===================================================================
 %%% API
@@ -61,9 +63,20 @@ transaction(Pid, DB, Ops) when is_list(Ops) ->
     Json = eovsdb_methods:q(transact, 0, [DB] ++ Ops),
     gen_server:call(Pid, {sync_send, Json}).
 
-%% monitor(Pid, DB) ->
-%%     ?MODULE:monitor(Pid, DB, [], #{}).
-%% monitor(Pid, DB, Cols, Select) ->
+monitor(Pid, MPid, DB, Table) when is_binary(Table); is_atom(Table) ->
+    {ok, Cols} = ?MODULE:get_columns(Pid, DB, Table),
+    Req = #{ Table => #{<<"columns">> => Cols}},
+    ?MODULE:monitor(Pid, MPid, DB, [Req]);
+monitor(Pid, MPid, DB, Reqs) when is_list(Reqs) ->
+    {ok, Id} = gen_server:call(Pid, {reg_monitor, MPid}),
+    Json = eovsdb_methods:q(monitor, Id, [DB, <<"null">>] ++ Reqs),
+    gen_server:call(Pid, {sync_send, Json}).
+
+monitor_cancel(Pid) ->
+    {ok, Id} = gen_server:call(Pid, get_monitor_id),
+    Json = eovsdb_methods:q(monitor_cancel, Id, [<<"null">>]),
+    gen_server:call(Pid, unreg_monitor),
+    gen_server:call(Pid, {sync_send, Json}).
 
 echo_reply(Id, Params) ->
     Json = eovsdb_methods:q(echo_reply, Id, Params),
@@ -109,11 +122,31 @@ handle_call({sync_send, Data0}, From,
             State = #?STATE{ socket = Socket,
                              protocol = Proto,
                              pending_message = PM0 }) ->
-    Id = eovsdb_util:rand_id(),
-    Data = Data0#{ id => Id },
+    #{ id := Id0 } = Data0,
+    {Data, Id} = case Id0 of
+                     Id0 when not is_integer(Id0);
+                              Id0 < 1 ->
+                         NewId = eovsdb_util:rand_id(),
+                         { Data0#{ id => NewId }, NewId };
+                     Id0 ->
+                         { Data0, Id0 }
+                 end,
     PM = maps:put(Id, #{ from => From, reply => noreply }, PM0),
     eovsdb_util:send_json(Proto, Socket, Data),
     {noreply, State#?STATE{ pending_message = PM }};
+handle_call({ reg_monitor, _Pid }, _From,
+            State = #?STATE{ monitor_xid = Xid }) when is_integer(Xid) ->
+    {reply, {error, {already_registered, Xid}}, State};
+handle_call({ reg_monitor, Pid }, _From, State) ->
+    Xid = eovsdb_util:rand_id(),
+    {reply, {ok, Xid}, State#?STATE{ monitor_pid = Pid,
+                                     monitor_xid = Xid }};
+handle_call(unreg_monitor, _From, State) ->
+    {reply, ok, State#?STATE{ monitor_pid = undefined,
+                              monitor_xid = undefined }};
+handle_call(get_monitor_id, _From,
+            State = #?STATE{ monitor_xid = Id}) ->
+    {reply, {ok, Id}, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
@@ -194,6 +227,12 @@ handle_tcp(State = #?STATE{ buffer = Buf }, Data0) ->
 handle_message(#{ <<"method">> := <<"echo">> } = Data, State) ->
     #{ <<"id">> := Id, <<"params">> := Params } = Data,
     ok = echo_reply(Id, Params),
+    State;
+handle_message(#{ <<"method">> := <<"update">> } = Data,
+               State = #?STATE{ monitor_pid = MPid }) ->
+    #{ <<"params">> := Params } = Data,
+    [_, Update] = Params,
+    erlang:send(MPid, {monitor_update, Update}),
     State;
 handle_message(Data, State = #?STATE{pending_message = PM0}) ->
     #{ <<"id">> := Id,
