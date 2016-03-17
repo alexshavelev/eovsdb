@@ -1,4 +1,4 @@
--module(eovsdb_client_sup).
+-module(eovsdb_protocol_sup).
 
 -behaviour(supervisor).
 
