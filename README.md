@@ -47,7 +47,7 @@ eovsdb_client:transaction(Pid, [eovsdb_op:insert(<<"Interface">>, Interface, <<"
                                 eovsdb_op:insert(<<"Bridge">>, Bridge, <<"bridge_br_int">>),
                                 eovsdb_op:update(<<"Open_vSwitch">>,
                                                  [{<<"_uuid">>, <<"==">> ,Open_vSwitch_Uuid }],
-                                                 #{ <<"bridges">> => [<<"set">>, Bridges ++ [[<<"named-uuid">>, <<"bridge_br_int">>]]]}),
+                                                 #{ <<"bridges">> => [<<"set">>, Bridges ++ [[<<"named-uuid">>, <<"bridge_br_int">>]]], other_config => [map, [[<<"flow-restore-wait">>, <<"true">>]]]}),
                                 eovsdb_op:mutate(<<"Open_vSwitch">>,
                                                  [{<<"_uuid">>, <<"==">> ,Open_vSwitch_Uuid }],
                                                  [{<<"next_cfg">>, <<"+=">>, 1}]),

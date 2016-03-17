@@ -9,12 +9,15 @@
 -define(DEFAULT_RETRY_CONNECT_TIME, 5000).
 -define(STATE, eovsdb_client_state).
 
--record(?STATE, { mref                   :: reference(),
-                  ipaddr                 :: inet:ip_address(),
+-record(?STATE, { ipaddr                 :: inet:ip_address(),
                   port                   :: integer(),
                   database               :: binary(),
                   conn_pid               :: pid(),
-                  connection_timeout = 0 :: integer() }).
+                  conn_ref               :: reference(),
+                  connection_timeout = 0 :: integer(),
+                  monitor_pid            :: pid(),
+                  monitor_ref            :: reference(),
+                  monitor_xid = 0        :: integer() }).
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -25,8 +28,10 @@
          list_dbs/1,
          get_schema/1,
          get_schema/2,
+         get_columns/2,
          transaction/2,
-         transaction/3]).
+         transaction/3,
+         monitor/3]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -47,10 +52,16 @@ get_schema(Pid) ->
 get_schema(Pid, DB) ->
     gen_server:call(Pid, {get_schema, DB}).
 
+get_columns(Pid, Table) ->
+    gen_server:call(Pid, {get_columns, Table}).
+
 transaction(Pid, Op) ->
     gen_server:call(Pid, {transaction, Op}).
 transaction(Pid, DB, Op) ->
     gen_server:call(Pid, {transaction, DB, Op}).
+
+monitor(Pid, Cols, Select) ->
+    gen_server:call(Pid, {monitor, self(), Pid, Cols, Select}).
 
 signal_connect(Pid) ->
     gen_server:cast(Pid, connect).
@@ -99,6 +110,10 @@ handle_call({get_schema, DB}, _From,
             State = #?STATE{ conn_pid = Conn }) ->
     Reply = eovsdb_protocol:get_schema(Conn, DB),
     {reply, Reply, State};
+handle_call({get_columns, Table}, _From,
+            State = #?STATE{ conn_pid = Conn, database = DB }) ->
+    Reply = eovsdb_protocol:get_columns(Conn, DB, Table),
+    {reply, Reply, State};
 handle_call({transaction, Ops},
             _From, State = #?STATE{ conn_pid = Conn, database = DB }) ->
     Reply = eovsdb_protocol:transaction(Conn, DB, Ops),
@@ -107,6 +122,14 @@ handle_call({transaction, DB, Ops},
             _From, State = #?STATE{ conn_pid = Conn }) ->
     Reply = eovsdb_protocol:transaction(Conn, DB, Ops),
     {reply, Reply, State};
+handle_call({monitor, MPid, Cols, Select},
+            _From, State = #?STATE{ conn_pid = Conn }) ->
+    MRef = erlang:monitor(process, MPid),
+    Reply = eovsdb_protocol:monitor(Conn, Cols, Select),
+    %% { ok, [X|_] } = Reply,
+    %% Xid = maps:get(<<"id">>, X),
+    %% NewState = State#?STATE{ monitor_xid = Xid },
+    {reply, Reply, State#?STATE{ monitor_ref = MRef }};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -118,11 +141,11 @@ handle_cast(connect, State = #?STATE{ ipaddr = Host,
                                           {packet, raw},
                                           {active, false}]) of
             {ok, Socket} ->
-                case eovsdb_client_sup:start_child(Socket) of
+                case eovsdb_protocol_sup:start_child(Socket) of
                     {ok, Conn} ->
                         gen_tcp:controlling_process(Socket, Conn),
                         MRef = erlang:monitor(process, Conn),
-                        State#?STATE{ mref = MRef, conn_pid = Conn };
+                        State#?STATE{ conn_ref = MRef, conn_pid = Conn };
                     {error, ChildReason} ->
                         HostStr = inet_parse:ntoa(Host),
                         ?WARN("can't start eovsdb_protocol for ~s:~p: ~p~n", [HostStr, Port, ChildReason]),
@@ -139,9 +162,15 @@ handle_cast(connect, State = #?STATE{ ipaddr = Host,
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'DOWN', MRef, process, _ConnPid, _Reason},
-            State = #?STATE{mref = MRef}) ->
+handle_info({'DOWN', ConnRef, process, _ConnPid, _Reason},
+            State = #?STATE{conn_ref = ConnRef}) ->
     signal_connect(self()),
+    {noreply, State};
+handle_info({'DOWN', MonRef, process, _ConnPid, _Reason},
+            State = #?STATE{monitor_ref = MonRef, monitor_xid = _Xid}) ->
+    %% eovsdb_protocol:monitor_cancel(Xid),
+    %%
+    not_implemented,
     {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.

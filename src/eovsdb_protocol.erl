@@ -8,7 +8,8 @@
 -export([start_link/1]).
 
 %% Protocol API
--export([echo_reply/2, list_dbs/1, get_schema/2, transaction/3]).
+-export([echo_reply/2, list_dbs/1, get_schema/2, transaction/3,
+         get_columns/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -47,11 +48,22 @@ get_schema(Pid, DB) ->
     Json = eovsdb_methods:q(get_schema, 0, [DB]),
     gen_server:call(Pid, {sync_send, Json}).
 
+get_columns(Pid, DB, Table) ->
+    {ok, Schema} = ?MODULE:get_schema(Pid, DB),
+    Tables = maps:get(<<"tables">>, Schema),
+    TableSchema = maps:get(Table, Tables),
+    ColSchema = maps:get(<<"columns">>, TableSchema),
+    {ok, maps:keys(ColSchema)}.
+
 transaction(Pid, DB, Op) when not is_list(Op) ->
     transaction(Pid, DB, [Op]);
 transaction(Pid, DB, Ops) when is_list(Ops) ->
     Json = eovsdb_methods:q(transact, 0, [DB] ++ Ops),
     gen_server:call(Pid, {sync_send, Json}).
+
+%% monitor(Pid, DB) ->
+%%     ?MODULE:monitor(Pid, DB, [], #{}).
+%% monitor(Pid, DB, Cols, Select) ->
 
 echo_reply(Id, Params) ->
     Json = eovsdb_methods:q(echo_reply, Id, Params),

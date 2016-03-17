@@ -14,7 +14,7 @@ q(transact, Id, Params) ->
     #{ id => Id, method => transact, params => Params };
 q(cancel, Id, Params) ->
     #{ id => Id, method => cancel, params => Params };
-q(monitor, Id, Params) ->
+q(monitor, Id, Params = [_DB, _JsonVal, _MonReq]) ->
     #{ id => Id, method => monitor, params => Params };
 q(update, Id, Params) ->
     #{ id => Id, method => update, params => Params };

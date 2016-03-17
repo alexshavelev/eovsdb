@@ -25,6 +25,6 @@ start_link() ->
 init([]) ->
     {ok, { {one_for_one, 5, 10},
            [
-            ?CHILD(eovsdb_client_sup, supervisor)
+            ?CHILD(eovsdb_protocol_sup, supervisor)
            ]
          } }.
