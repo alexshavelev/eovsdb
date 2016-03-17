@@ -1,2 +1,3 @@
 -define(INFO(Fmt, Arg), error_logger:info_msg(Fmt, Arg)).
 -define(WARN(Fmt, Arg), error_logger:warning_msg(Fmt, Arg)).
+-define(ERR(Fmt, Arg), error_logger:error_msg(Fmt, Arg)).
