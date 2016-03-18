@@ -5,7 +5,7 @@
 -include("eovsdb_logger.hrl").
 
 %% API
--export([start_link/1]).
+-export([start_link/1, close_session/1]).
 
 %% Protocol API
 -export([echo_reply/2, list_dbs/1, get_schema/2, transaction/3,
@@ -41,6 +41,9 @@
 %%--------------------------------------------------------------------
 start_link(Socket) ->
     gen_server:start_link(?MODULE, [Socket], []).
+
+close_session(Pid) ->
+    gen_server:call(Pid, close_session).
 
 list_dbs(Pid) ->
     Json = eovsdb_methods:q(list_dbs, 0, []),
@@ -147,6 +150,8 @@ handle_call(unreg_monitor, _From, State) ->
 handle_call(get_monitor_id, _From,
             State = #?STATE{ monitor_xid = Id}) ->
     {reply, {ok, Id}, State};
+handle_call(close_session, _From, State) ->
+    terminate_connection(State, normal);
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.

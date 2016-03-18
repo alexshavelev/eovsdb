@@ -23,6 +23,7 @@
 %% ------------------------------------------------------------------
 
 -export([connect/2,
+         close/1,
          signal_connect/1,
          list_dbs/1,
          get_schema/1,
@@ -86,7 +87,10 @@ connect(Host, Opts) when is_list(Host) ->
                     end;
                 {ok, TmpAddr} -> TmpAddr
             end,
-    gen_server:start_link(?MODULE, [Addr1, Port, Opts], []).
+    gen_server:start(?MODULE, [Addr1, Port, Opts], []).
+
+close(Pid) ->
+    gen_server:call(Pid, close_session).
 
 %% ------------------------------------------------------------------
 %% callbacks
@@ -137,6 +141,11 @@ handle_call(monitor_cancel, _From,
     eovsdb_protocol:monitor_cancel(ConnPid),
     erlang:demonitor(MonRef),
     {reply, ok, State#?STATE{ monitor_ref = undefined}};
+handle_call(close_session, _From,
+            State = #?STATE{ conn_pid = ConnPid, conn_ref = ConnRef }) ->
+    erlang:demonitor(ConnRef),
+    eovsdb_protocol:close_session(ConnPid),
+    {stop, normal, State#?STATE{ conn_ref = undefined, conn_pid = undefined}};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 

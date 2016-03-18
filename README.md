@@ -19,7 +19,16 @@ eovsdb supports [RFC7047](https://tools.ietf.org/html/rfc7047) protocol specific
 
 ## Usage
 
-### select
+### Abstracted API
+
+```erlang
+vswitch:add_br(br1).
+vswitch:del_br(br1).
+```
+
+### primitive API
+
+#### select
 
 ```erlang
 { ok, Pid } = eovsdb_client:connect("127.0.0.1:6632", [{ database, <<"Open_vSwitch">>}]).
@@ -29,7 +38,7 @@ eovsdb_client:transaction(Pid, [eovsdb_op:select("*", <<"Bridge">>, [])]).
 eovsdb_client:transaction(Pid, [eovsdb_op:select("*", <<"Bridge">>, [{<<"name">>, <<"==">>, <<"br1">>}])]).
 ```
 
-### Add Bridge to openvswitch
+#### Add Bridge to openvswitch
 
 ```erlang
 { ok, Pid } = eovsdb_client:connect("127.0.0.1:6632", [{ database, <<"Open_vSwitch">>}]).
@@ -54,7 +63,7 @@ eovsdb_client:transaction(Pid, [eovsdb_op:insert(<<"Interface">>, Interface, <<"
                                 eovsdb_op:commit(true)]).
 ```
 
-### Tracking OVSDB Changes
+#### Tracking OVSDB Changes
 
 ```erlang
 { ok, Pid } = eovsdb_client:connect("127.0.0.1:6632", [{ database, <<"Open_vSwitch">>}]).
