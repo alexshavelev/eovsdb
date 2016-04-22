@@ -1,4 +1,4 @@
-eovsdb [![Build Status](https://travis-ci.org/shun159/eovsdb.svg?branch=master)](https://travis-ci.org/shun159/eovsdb)
+eovsdb [![Build Status](https://travis-ci.org/shun159/eovsdb.svg?branch=develop)](https://travis-ci.org/shun159/eovsdb)
 ===
 
 eovsdb supports [RFC7047](https://tools.ietf.org/html/rfc7047) protocol specification, and support parallel connection and auto reconnect to OVSDB server
