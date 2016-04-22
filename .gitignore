@@ -1,10 +1,9 @@
 .eunit
 .railing
-*deps/*
-*ebin/*
 *.o
 *.log
 *.beam
+ebin/eovsdb.app
 *.plt
 erl_crash.dump
 log
@@ -12,5 +11,9 @@ log
 .rebar
 *Mnesia*
 Gemfile.lock
-rebar
-*~
+.erlang.mk
+eovsdb.d
+ebin/test
+ebin/*.app
+deps/
+*/*~
