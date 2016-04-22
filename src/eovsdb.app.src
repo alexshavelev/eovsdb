@@ -5,12 +5,16 @@
   {registered, []},
   {applications, [
                   kernel,
-                  stdlib,
-                  jsone,
-                  uuid
+                  stdlib
                  ]},
   {mod, { eovsdb_app, []}},
   {env, []},
-  {modules,[eovsdb_app,eovsdb_client,eovsdb_methods,eovsdb_op,
-            eovsdb_protocol,eovsdb_protocol_sup,eovsdb_sup,
-            eovsdb_util,vswitch]}]}.
+  {modules,[eovsdb_app,
+            eovsdb_client,
+            eovsdb_methods,
+            eovsdb_op,
+            eovsdb_protocol,
+            eovsdb_protocol_sup,
+            eovsdb_sup,
+            eovsdb_util,
+            vswitch]}]}.
