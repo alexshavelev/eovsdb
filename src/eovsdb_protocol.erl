@@ -71,9 +71,13 @@ monitor(Pid, MPid, DB, Table) when is_binary(Table); is_atom(Table) ->
     Req = #{ Table => #{<<"columns">> => Cols}},
     ?MODULE:monitor(Pid, MPid, DB, [Req]);
 monitor(Pid, MPid, DB, Reqs) when is_list(Reqs) ->
-    {ok, Id} = gen_server:call(Pid, {reg_monitor, MPid}),
-    Json = eovsdb_methods:q(monitor, Id, [DB, <<"null">>] ++ Reqs),
-    gen_server:call(Pid, {sync_send, Json}).
+    case gen_server:call(Pid, {reg_monitor, MPid}) of
+        {ok, Id} ->
+            gen_server:call(Pid, {reg_monitor, MPid}),
+            Json = eovsdb_methods:q(monitor, Id, [DB, <<"null">>] ++ Reqs),
+            gen_server:call(Pid, {sync_send, Json});
+        {error, _} = E -> E
+    end.
 
 monitor_cancel(Pid) ->
     {ok, Id} = gen_server:call(Pid, get_monitor_id),
