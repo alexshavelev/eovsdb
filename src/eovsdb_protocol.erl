@@ -241,7 +241,7 @@ handle_message(#{ <<"method">> := <<"update">> } = Data,
                State = #?STATE{ monitor_pid = MPid }) ->
     #{ <<"params">> := Params } = Data,
     [_, Update] = Params,
-    erlang:send(MPid, {monitor_update, Update}),
+    erlang:send(MPid, {ovsdb_monitor, Update}),
     State;
 handle_message(Data, State = #?STATE{pending_message = PM0}) ->
     #{ <<"id">> := Id,

@@ -189,7 +189,7 @@ handle_info({'DOWN', MonRef, process, _MonPid, _Reason},
     eovsdb_protocol:monitor_cancel(ConnPid),
     erlang:demonitor(MonRef),
     {noreply, State};
-handle_info({monitor_update, Update},
+handle_info({ovsdb_monitor, _} = Update,
             State = #?STATE{monitor_pid = MPid}) ->
     erlang:send(MPid, Update),
     {noreply, State};
