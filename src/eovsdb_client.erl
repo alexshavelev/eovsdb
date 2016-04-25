@@ -16,7 +16,8 @@
                   conn_ref               :: reference(),
                   connection_timeout = 0 :: integer(),
                   monitor_pid            :: pid(),
-                  monitor_ref            :: reference()}).
+                  monitor_ref            :: reference(),
+                  monitor_select         :: term()}).
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -134,13 +135,16 @@ handle_call({monitor, MPid, Select},
     Reply = eovsdb_protocol:monitor(Conn, self(), DB, Select),
     MRef = erlang:monitor(process, MPid),
     {reply, Reply, State#?STATE{ monitor_ref = MRef,
-                                 monitor_pid = MPid }};
+                                 monitor_pid = MPid,
+                                 monitor_select = Select}};
 handle_call(monitor_cancel, _From,
             State = #?STATE{ conn_pid = ConnPid,
                              monitor_ref = MonRef}) ->
     eovsdb_protocol:monitor_cancel(ConnPid),
     erlang:demonitor(MonRef),
-    {reply, ok, State#?STATE{ monitor_ref = undefined}};
+    {reply, ok, State#?STATE{ monitor_ref = undefined,
+                              monitor_pid = undefined,
+                              monitor_select = undefined}};
 handle_call(close_session, _From,
             State = #?STATE{ conn_pid = ConnPid, conn_ref = ConnRef }) ->
     erlang:demonitor(ConnRef),
@@ -159,18 +163,30 @@ handle_cast(connect, State = #?STATE{ ipaddr = Host,
             {ok, Socket} ->
                 case eovsdb_protocol_sup:start_child(Socket) of
                     {ok, Conn} ->
-                        gen_tcp:controlling_process(Socket, Conn),
-                        MRef = erlang:monitor(process, Conn),
-                        State#?STATE{ conn_ref = MRef, conn_pid = Conn };
+                        case State#?STATE.monitor_ref of
+                            Ref when is_reference(Ref) ->
+                                ?INFO("[~p] monitor reconnecting: ~p ~n", [?MODULE, Ref]),
+                                gen_tcp:controlling_process(Socket, Conn),
+                                MRef = erlang:monitor(process, Conn),
+                                eovsdb_protocol:monitor(Conn,
+                                                        State#?STATE.monitor_pid,
+                                                        State#?STATE.database,
+                                                        State#?STATE.monitor_select),
+                                State#?STATE{ conn_ref = MRef, conn_pid = Conn };
+                            _ ->
+                                gen_tcp:controlling_process(Socket, Conn),
+                                MRef = erlang:monitor(process, Conn),
+                                State#?STATE{ conn_ref = MRef, conn_pid = Conn }
+                        end;
                     {error, ChildReason} ->
                         HostStr = inet_parse:ntoa(Host),
-                        ?WARN("can't start eovsdb_protocol for ~s:~p: ~p~n", [HostStr, Port, ChildReason]),
+                        ?WARN("[~p] can't start eovsdb_protocol for ~s:~p: ~p~n", [?MODULE, HostStr, Port, ChildReason]),
                         retry_connect(self(), TimeOut),
                         State
                 end;
             {error, TcpReason} ->
                 HostStr = inet_parse:ntoa(Host),
-                ?WARN("tcp error connecting to ~s:~p: ~p~n", [HostStr, Port, TcpReason]),
+                ?WARN("[~p] tcp error connecting to ~s:~p: ~p~n", [?MODULE, HostStr, Port, TcpReason]),
                 retry_connect(self(), TimeOut),
                 State
         end,
@@ -178,6 +194,13 @@ handle_cast(connect, State = #?STATE{ ipaddr = Host,
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+handle_info({'DOWN', ConnRef, process, _ConnPid, _Reason},
+            State = #?STATE{conn_ref = ConnRef,
+                            monitor_ref = MonRef}) when is_reference(MonRef) ->
+    ?WARN("[~p] monitor down: ~p ~n", [?MODULE, MonRef]),
+    signal_connect(self()),
+    erlang:demonitor(ConnRef),
+    {noreply, State};
 handle_info({'DOWN', ConnRef, process, _ConnPid, _Reason},
             State = #?STATE{conn_ref = ConnRef}) ->
     signal_connect(self()),
