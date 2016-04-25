@@ -1,21 +1,10 @@
-.PHONY: compile test clean
+PROJECT = eovsdb
 
-compile: rebar
-	@./rebar get-deps
-	@./rebar compile
+DEPS = jsone uuid
+dep_jsone_commit = 1.2.3
+dep_uuid = git https://github.com/avtobiff/erlang-uuid.git v0.5.0
 
-test: rebar
-	@./rebar skip_deps=true eunit
+EUNIT_OPTS += verbose
+EUNIT_COMPILE_OPTS := +'{src_dirs, ["test"]}'
 
-clean: rebar
-	@./rebar clean
-
-deep-clean: clean
-	@./rebar delete-deps
-
-dev: compile
-	@./start_dev.sh
-
-rebar:
-	@wget -q http://cloud.github.com/downloads/basho/rebar/rebar
-	@chmod u+x rebar
+include erlang.mk

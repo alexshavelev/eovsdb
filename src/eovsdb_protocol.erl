@@ -5,7 +5,7 @@
 -include("eovsdb_logger.hrl").
 
 %% API
--export([start_link/1]).
+-export([start_link/1, close_session/1]).
 
 %% Protocol API
 -export([echo_reply/2, list_dbs/1, get_schema/2, transaction/3,
@@ -42,6 +42,9 @@
 start_link(Socket) ->
     gen_server:start_link(?MODULE, [Socket], []).
 
+close_session(Pid) ->
+    gen_server:call(Pid, close_session).
+
 list_dbs(Pid) ->
     Json = eovsdb_methods:q(list_dbs, 0, []),
     gen_server:call(Pid, {sync_send, Json}).
@@ -68,9 +71,13 @@ monitor(Pid, MPid, DB, Table) when is_binary(Table); is_atom(Table) ->
     Req = #{ Table => #{<<"columns">> => Cols}},
     ?MODULE:monitor(Pid, MPid, DB, [Req]);
 monitor(Pid, MPid, DB, Reqs) when is_list(Reqs) ->
-    {ok, Id} = gen_server:call(Pid, {reg_monitor, MPid}),
-    Json = eovsdb_methods:q(monitor, Id, [DB, <<"null">>] ++ Reqs),
-    gen_server:call(Pid, {sync_send, Json}).
+    case gen_server:call(Pid, {reg_monitor, MPid}) of
+        {ok, Id} ->
+            gen_server:call(Pid, {reg_monitor, MPid}),
+            Json = eovsdb_methods:q(monitor, Id, [DB, <<"null">>] ++ Reqs),
+            gen_server:call(Pid, {sync_send, Json});
+        {error, _} = E -> E
+    end.
 
 monitor_cancel(Pid) ->
     {ok, Id} = gen_server:call(Pid, get_monitor_id),
@@ -147,6 +154,8 @@ handle_call(unreg_monitor, _From, State) ->
 handle_call(get_monitor_id, _From,
             State = #?STATE{ monitor_xid = Id}) ->
     {reply, {ok, Id}, State};
+handle_call(close_session, _From, State) ->
+    terminate_connection(State, normal);
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
@@ -232,7 +241,7 @@ handle_message(#{ <<"method">> := <<"update">> } = Data,
                State = #?STATE{ monitor_pid = MPid }) ->
     #{ <<"params">> := Params } = Data,
     [_, Update] = Params,
-    erlang:send(MPid, {monitor_update, Update}),
+    erlang:send(MPid, {ovsdb_monitor, Update}),
     State;
 handle_message(Data, State = #?STATE{pending_message = PM0}) ->
     #{ <<"id">> := Id,
