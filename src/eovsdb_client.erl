@@ -12,6 +12,7 @@
 -record(?STATE, { ipaddr                 :: inet:ip_address(),
                   port                   :: integer(),
                   database               :: binary(),
+                  schema                 :: map(),
                   conn_pid               :: pid(),
                   conn_ref               :: reference(),
                   connection_timeout = 0 :: integer(),
@@ -29,6 +30,10 @@
          list_dbs/1,
          get_schema/1,
          get_schema/2,
+         get_table_schema/3,
+         regist_schema/1,
+         regist_schema/2,
+         get_regist_schema/1,
          get_columns/2,
          transaction/2,
          transaction/3,
@@ -53,6 +58,17 @@ get_schema(Pid) ->
     gen_server:call(Pid, get_schema).
 get_schema(Pid, DB) ->
     gen_server:call(Pid, {get_schema, DB}).
+
+get_table_schema(Pid, Table, Col) ->
+    gen_server:call(Pid, {get_table_schema, Table, Col}).
+
+regist_schema(Pid) ->
+    gen_server:cast(Pid, regist_schema).
+regist_schema(Pid, DB) ->
+    gen_server:cast(Pid, {regist_schema, DB}).
+
+get_regist_schema(Pid) ->
+    gen_server:call(Pid, get_regist_schema).
 
 get_columns(Pid, Table) ->
     gen_server:call(Pid, {get_columns, Table}).
@@ -114,10 +130,17 @@ handle_call(get_schema, _From,
             State = #?STATE{ conn_pid = Conn, database = DB }) ->
     Reply = eovsdb_protocol:get_schema(Conn, DB),
     {reply, Reply, State};
+handle_call({get_table_schema, Table, Col}, _From,
+            State = #?STATE{ schema = Schema }) ->
+    Reply = table_schema(Table, Col, Schema),
+    {reply, Reply, State};
 handle_call({get_schema, DB}, _From,
             State = #?STATE{ conn_pid = Conn }) ->
     Reply = eovsdb_protocol:get_schema(Conn, DB),
     {reply, Reply, State};
+handle_call(get_regist_schema, _From,
+            State = #?STATE{ schema = Schema }) ->
+    {reply, Schema, State};
 handle_call({get_columns, Table}, _From,
             State = #?STATE{ conn_pid = Conn, database = DB }) ->
     Reply = eovsdb_protocol:get_columns(Conn, DB, Table),
@@ -153,6 +176,14 @@ handle_call(close_session, _From,
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
+handle_cast(regist_schema,
+            State = #?STATE{ conn_pid = Conn, database = DB }) ->
+    {ok, #{<<"tables">> := Tables}} = eovsdb_protocol:get_schema(Conn, DB),
+    {noreply, State#?STATE{ schema = Tables}};
+handle_cast({regist_schema, DB},
+            State = #?STATE{ conn_pid = Conn }) ->
+    {ok, #{<<"tables">> := Tables}} = eovsdb_protocol:get_schema(Conn, DB),
+    {noreply, State#?STATE{ schema = Tables}};
 handle_cast(connect, State = #?STATE{ ipaddr = Host,
                                       port = Port,
                                       connection_timeout = TimeOut}) ->
@@ -231,3 +262,36 @@ code_change(_OldVsn, State, _Extra) ->
 
 retry_connect(Pid, WaitTime) ->
     timer:apply_after(WaitTime, ?MODULE, signal_connect, [Pid]).
+
+table_schema(TabName, ColName, Schema)
+  when is_atom(TabName),
+       is_atom(ColName) ->
+    TabNameBin = atom_to_binary(TabName, utf8),
+    ColNameBin = atom_to_binary(ColName, utf8),
+    table_schema(TabNameBin, ColNameBin, Schema);
+table_schema(TabName, ColName, Schema) ->
+    case maps:get(TabName, Schema, false) of
+        false -> {error, {TabName, not_found}};
+        #{<<"columns">> := Columns} ->
+            case maps:get(ColName, Columns, false) of
+                false ->
+                    {error, {ColName, not_found}};
+                #{<<"type">> := Type} ->
+                    column_schema(Type)
+            end
+    end.
+
+column_schema(#{<<"key">> := #{<<"enum">> := [<<"set">>, Enum]}}) ->
+    {enum, Enum};
+column_schema(#{<<"key">> := #{<<"key">> := _, <<"value">> := _}}) ->
+    map;
+column_schema(#{<<"key">> := #{<<"refTable">> := Table, <<"min">> := _}}) ->
+    {set, {ref_table, Table}};
+column_schema(#{<<"key">> := #{<<"min">> := _, <<"type">> := Type}}) ->
+    {set, Type};
+column_schema(#{<<"key">> := #{<<"refTable">> := Table}}) ->
+    {ref_table, Table};
+column_schema(#{<<"key">> := Type}) ->
+    Type;
+column_schema(Type) ->
+    Type.
