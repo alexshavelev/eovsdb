@@ -28,7 +28,7 @@ close(tls, Socket) ->
     ssl:close(Socket).
 
 rand_id() ->
-    IdBin = crypto:rand_bytes(4),
+    IdBin = crypto:strong_rand_bytes(4),
     binary:decode_unsigned(IdBin, big).
 
 uuid() ->
