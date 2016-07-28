@@ -5,6 +5,7 @@
 -export([update/3]).
 -export([delete/2]).
 -export([mutate/3]).
+-export([wait/4, wait/5]).
 -export([commit/1]).
 -export([abort/0]).
 
@@ -50,6 +51,18 @@ mutate(Table, Conds, Muts0) ->
        table => Table,
        where => Where,
        mutations => Muts }.
+
+wait(Table, Conds, Rows, Until) ->
+    wait(Table, Conds, Rows, Until, []).
+wait(Table, Conds, Rows, Until, Cols) ->
+    Where = [[C, F, V] || {C, F, V} <- Conds],
+    #{op => wait,
+      timeout => 10,
+      table => Table,
+      where => Where,
+      columns => Cols,
+      until => Until,
+      rows => Rows}.
 
 commit(Mode) ->
     #{ op => commit,
